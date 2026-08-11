@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block title %}Customers{% endblock %}
+{% block page_title %}Customers{% endblock %}
 
 {% block page %}
 <div class="page-head">
@@ -12,7 +13,12 @@
   <button class="btn btn-primary" id="new-customer" type="button">New customer</button>
 </div>
 
-<div class="card">
+<div class="card card-banded">
+  <div class="card-band">
+    <h2>All customers</h2>
+    <span style="font-size:0.78rem;opacity:0.8;">Newest first</span>
+  </div>
+  <div class="card-body">
   <div class="toolbar">
     <div class="field">
       <label for="filter-search">Search</label>
@@ -32,6 +38,7 @@
     </table>
   </div>
   <div class="pager" id="customer-pager"></div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="customer-modal" hidden>

@@ -26,7 +26,8 @@ env/
 ENV/
 
 # Django
-/static/
+# NOTE: /static/ is the SOURCE tree (STATICFILES_DIRS) and must be committed.
+# Only the collectstatic output (/staticfiles/, STATIC_ROOT) is generated.
 /staticfiles/
 /media/
 *.log

@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block title %}Orders{% endblock %}
+{% block page_title %}Orders{% endblock %}
 
 {% block page %}
 <div class="page-head">
@@ -11,7 +12,12 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card card-banded">
+  <div class="card-band">
+    <h2>All orders</h2>
+    <span style="font-size:0.78rem;opacity:0.8;">Newest first</span>
+  </div>
+  <div class="card-body">
   <div class="toolbar">
     <div class="field">
       <label for="filter-status">Status</label>
@@ -50,6 +56,7 @@
     </table>
   </div>
   <div class="pager" id="order-pager"></div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="order-modal" hidden>

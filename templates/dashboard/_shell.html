@@ -2,24 +2,71 @@
 {% load static %}
 
 {% comment %}
-Chrome shared by every dashboard page: sidebar, business switcher, sign-out.
-Pages fill `page` with their own content and `page_scripts` with their module.
+Chrome shared by every dashboard page: top bar (search, notifications, account),
+sidebar, business switcher, sign-out. Pages fill `page` with their own content
+and `page_scripts` with their module.
 {% endcomment %}
 
 {% block body %}
+<header class="topbar">
+  <div class="topbar-title">
+    <span class="brand-mark">C</span>
+    <span>{% block page_title %}Dashboard{% endblock %}</span>
+  </div>
+
+  <div class="topbar-tools">
+    {# Drives the current page's own filter where there is one, else jumps to
+       Products. Never a decorative box. #}
+    <form class="topsearch" id="topsearch" role="search">
+      <input id="topsearch-input" type="search" placeholder="Search" aria-label="Search">
+      <button type="submit" aria-label="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </button>
+    </form>
+
+    <a class="bell" id="bell" href="/dashboard/orders/" aria-label="Orders awaiting action">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span class="bell-count" id="bell-count" hidden>0</span>
+    </a>
+
+    <div class="user-chip">
+      <span class="avatar" id="user-initial">·</span>
+      <span class="user-chip-text">
+        <span class="user-chip-name" id="user-name">Signed in</span>
+        <span class="user-chip-sub" id="user-sub"></span>
+      </span>
+    </div>
+  </div>
+</header>
+
 <div class="layout">
   <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-mark"></span>
-      <span class="brand-name" id="brand-name">Commerce</span>
+    <div>
+      <div class="side-wordmark" id="brand-name">Commerce</div>
+      <span class="side-sub" id="brand-plan">Workspace</span>
     </div>
 
     <nav class="nav">
-      <a href="/dashboard/" class="{% if nav == 'dashboard' %}current{% endif %}">Dashboard</a>
-      <a href="/dashboard/orders/" class="{% if nav == 'orders' %}current{% endif %}">Orders</a>
-      <a href="/dashboard/products/" class="{% if nav == 'products' %}current{% endif %}">Products</a>
-      <a href="/dashboard/customers/" class="{% if nav == 'customers' %}current{% endif %}">Customers</a>
-      <a href="/dashboard/deliveries/" class="{% if nav == 'deliveries' %}current{% endif %}">Deliveries</a>
+      <a href="/dashboard/" class="{% if nav == 'dashboard' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a href="/dashboard/orders/" class="{% if nav == 'orders' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 4 6v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        Orders
+      </a>
+      <a href="/dashboard/products/" class="{% if nav == 'products' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 8-9-5-9 5 9 5 9-5Z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/></svg>
+        Products
+      </a>
+      <a href="/dashboard/customers/" class="{% if nav == 'customers' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+        Customers
+      </a>
+      <a href="/dashboard/deliveries/" class="{% if nav == 'deliveries' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-4l-3-4h-5v8h2"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+        Deliveries
+      </a>
     </nav>
 
     <div class="sidebar-foot">

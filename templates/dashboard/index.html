@@ -2,51 +2,92 @@
 {% load static %}
 
 {% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 
 {% block page %}
 <div class="page-head">
   <div>
-    <h1>Dashboard</h1>
-    <p>Today at a glance.</p>
+    <h1>Today at a glance</h1>
+    <p>Live figures for the selected business.</p>
   </div>
 </div>
 
 {# KPI row. Today's revenue is the hero figure - exactly one per view. #}
 <div class="grid grid-kpi" id="kpi-row">
   <div class="card tile">
-    <span class="tile-label">Today's sales</span>
-    <span class="tile-value hero" id="kpi-revenue">—</span>
+    <div class="tile-row">
+      <span class="tile-icon solid">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value hero" id="kpi-revenue">—</span>
+        <span class="tile-label">Today's sales</span>
+      </div>
+    </div>
     <span class="tile-delta" id="kpi-revenue-delta"></span>
     <div class="tile-spark" id="kpi-revenue-spark"></div>
   </div>
+
   <div class="card tile">
-    <span class="tile-label">Orders today</span>
-    <span class="tile-value" id="kpi-orders">—</span>
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 4 6v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-orders">—</span>
+        <span class="tile-label">Orders today</span>
+      </div>
+    </div>
     <span class="tile-delta" id="kpi-orders-delta"></span>
+    <div class="tile-spark" id="kpi-orders-spark"></div>
   </div>
+
   <div class="card tile">
-    <span class="tile-label">Customers</span>
-    <span class="tile-value" id="kpi-customers">—</span>
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-customers">—</span>
+        <span class="tile-label">Customers</span>
+      </div>
+    </div>
     <span class="tile-delta muted" id="kpi-customers-sub"></span>
   </div>
+
   <div class="card tile">
-    <span class="tile-label">Pending payments</span>
-    <span class="tile-value" id="kpi-pending">—</span>
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-pending">—</span>
+        <span class="tile-label">Pending payments</span>
+      </div>
+    </div>
     <span class="tile-delta muted" id="kpi-pending-sub"></span>
   </div>
 </div>
 
-<div class="grid grid-2" style="margin-top:14px;">
+<div class="grid grid-2" style="margin-top:16px;">
   <div class="card">
     <div class="card-head">
       <div>
         <h2>Revenue</h2>
         <span class="sub" id="revenue-sub">Last 30 days</span>
       </div>
-      <button class="chart-toggle" id="revenue-toggle" type="button">Show table</button>
+      {# Range switch — refetches, it does not just relabel. #}
+      <div class="segmented" id="revenue-range" role="group" aria-label="Revenue period">
+        <button type="button" data-period="7">Week</button>
+        <button type="button" data-period="30" class="current" aria-pressed="true">Month</button>
+        <button type="button" data-period="365">Year</button>
+      </div>
     </div>
     <div class="chart-wrap" id="revenue-chart"></div>
     <div id="revenue-table" hidden></div>
+    <div style="margin-top:10px;">
+      <button class="chart-toggle" id="revenue-toggle" type="button">Show table</button>
+    </div>
   </div>
 
   <div class="card">
@@ -57,41 +98,61 @@
       </div>
       <button class="chart-toggle" id="source-toggle" type="button">Show table</button>
     </div>
-    <div class="chart-wrap" id="source-chart"></div>
+    <div id="source-chart"></div>
     <div id="source-table" hidden></div>
   </div>
 </div>
 
-<div class="card" style="margin-top:14px;">
-  <div class="card-head">
-    <h2>Recent orders</h2>
-    <a class="sub" href="/dashboard/orders/">View all</a>
+<div class="grid grid-wide" style="margin-top:16px;">
+  <div class="card card-banded">
+    <div class="card-band">
+      <h2>Recent orders</h2>
+      <div class="band-tools">
+        <a href="/dashboard/orders/">View all</a>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th><th>Customer</th><th>Status</th>
+              <th>Placed</th><th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody id="recent-orders"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Order</th><th>Customer</th><th>Status</th>
-          <th>Placed</th><th class="num">Total</th>
-        </tr>
-      </thead>
-      <tbody id="recent-orders"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
-    </table>
+
+  <div class="card card-banded">
+    <div class="card-band">
+      <h2>Top products</h2>
+      <span style="font-size:0.78rem;opacity:0.8;">Units sold</span>
+    </div>
+    <div class="card-body">
+      <ol class="rank-list" id="top-products">
+        <li class="empty">Loading…</li>
+      </ol>
+    </div>
   </div>
 </div>
 
-<div class="card" style="margin-top:14px;">
-  <div class="card-head">
+<div class="card card-banded" style="margin-top:16px;">
+  <div class="card-band">
     <h2>Low stock</h2>
-    <span class="sub">At or below the reorder threshold</span>
+    <span style="font-size:0.78rem;opacity:0.8;">At or below the reorder threshold</span>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Product</th><th class="num">In stock</th><th class="num">Threshold</th></tr>
-      </thead>
-      <tbody id="low-stock"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
-    </table>
+  <div class="card-body">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Product</th><th class="num">In stock</th><th class="num">Threshold</th></tr>
+        </thead>
+        <tbody id="low-stock"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}

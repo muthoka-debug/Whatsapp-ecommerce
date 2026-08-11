@@ -6,10 +6,10 @@
 {% block body %}
 <header class="shop-header">
   <div style="display:flex;align-items:center;gap:10px;">
-    <span class="brand-mark"></span>
+    <span class="brand-mark">{{ business_name|first|upper }}</span>
     <strong id="shop-name">{{ business_name }}</strong>
   </div>
-  <button class="btn" id="open-cart" type="button">
+  <button class="btn btn-primary" id="open-cart" type="button">
     Cart <span class="cart-count" id="cart-count">0</span>
   </button>
 </header>
@@ -22,14 +22,16 @@
     <p id="banner-text"></p>
   </section>
 
-  <div class="toolbar">
-    <div class="field">
-      <label for="search">Search</label>
-      <input id="search" placeholder="What are you looking for?">
+  {# Search and categories read as one filter bar rather than two loose rows. #}
+  <div class="shop-bar">
+    <div class="toolbar" style="margin:0;">
+      <div class="field">
+        <label for="search">Search</label>
+        <input id="search" placeholder="What are you looking for?">
+      </div>
     </div>
+    <div class="chip-row" id="category-chips"></div>
   </div>
-
-  <div class="chip-row" id="category-chips"></div>
 
   <div class="product-grid" id="product-grid">
     <div class="empty">Loading products…</div>

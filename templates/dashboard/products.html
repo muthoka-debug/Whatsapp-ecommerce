@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block title %}Products{% endblock %}
+{% block page_title %}Products{% endblock %}
 
 {% block page %}
 <div class="page-head">
@@ -12,7 +13,12 @@
   <button class="btn btn-primary" id="new-product" type="button">New product</button>
 </div>
 
-<div class="card">
+<div class="card card-banded">
+  <div class="card-band">
+    <h2>Catalogue</h2>
+    <span style="font-size:0.78rem;opacity:0.8;">Stock and pricing</span>
+  </div>
+  <div class="card-body">
   <div class="toolbar">
     <div class="field">
       <label for="filter-search">Search</label>
@@ -45,6 +51,7 @@
     </table>
   </div>
   <div class="pager" id="product-pager"></div>
+  </div>
 </div>
 
 {# Product create/edit #}

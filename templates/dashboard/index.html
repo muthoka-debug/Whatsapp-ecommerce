@@ -1,0 +1,101 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Today at a glance.</p>
+  </div>
+</div>
+
+{# KPI row. Today's revenue is the hero figure - exactly one per view. #}
+<div class="grid grid-kpi" id="kpi-row">
+  <div class="card tile">
+    <span class="tile-label">Today's sales</span>
+    <span class="tile-value hero" id="kpi-revenue">—</span>
+    <span class="tile-delta" id="kpi-revenue-delta"></span>
+    <div class="tile-spark" id="kpi-revenue-spark"></div>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Orders today</span>
+    <span class="tile-value" id="kpi-orders">—</span>
+    <span class="tile-delta" id="kpi-orders-delta"></span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Customers</span>
+    <span class="tile-value" id="kpi-customers">—</span>
+    <span class="tile-delta muted" id="kpi-customers-sub"></span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Pending payments</span>
+    <span class="tile-value" id="kpi-pending">—</span>
+    <span class="tile-delta muted" id="kpi-pending-sub"></span>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:14px;">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Revenue</h2>
+        <span class="sub" id="revenue-sub">Last 30 days</span>
+      </div>
+      <button class="chart-toggle" id="revenue-toggle" type="button">Show table</button>
+    </div>
+    <div class="chart-wrap" id="revenue-chart"></div>
+    <div id="revenue-table" hidden></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Sales by channel</h2>
+        <span class="sub">Paid and delivered orders</span>
+      </div>
+      <button class="chart-toggle" id="source-toggle" type="button">Show table</button>
+    </div>
+    <div class="chart-wrap" id="source-chart"></div>
+    <div id="source-table" hidden></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-head">
+    <h2>Recent orders</h2>
+    <a class="sub" href="/dashboard/orders/">View all</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th><th>Customer</th><th>Status</th>
+          <th>Placed</th><th class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody id="recent-orders"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-head">
+    <h2>Low stock</h2>
+    <span class="sub">At or below the reorder threshold</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Product</th><th class="num">In stock</th><th class="num">Threshold</th></tr>
+      </thead>
+      <tbody id="low-stock"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}

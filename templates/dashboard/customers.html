@@ -1,0 +1,72 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Customers{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Customers</h1>
+    <p>Everyone who has bought from you.</p>
+  </div>
+  <button class="btn btn-primary" id="new-customer" type="button">New customer</button>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <div class="field">
+      <label for="filter-search">Search</label>
+      <input id="filter-search" placeholder="Name, phone or email">
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Phone</th><th>Email</th>
+          <th class="num">Orders</th><th class="num">Spent</th><th>Added</th>
+        </tr>
+      </thead>
+      <tbody id="customer-rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="customer-pager"></div>
+</div>
+
+<div class="modal-backdrop" id="customer-modal" hidden>
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h2>New customer</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="customer-error" hidden></div>
+    <form id="customer-form">
+      <div class="field">
+        <label for="customer-name">Name</label>
+        <input id="customer-name" required>
+      </div>
+      <div class="field">
+        <label for="customer-phone">Phone</label>
+        <input id="customer-phone" placeholder="07XXXXXXXX" required>
+      </div>
+      <div class="field">
+        <label for="customer-email">Email</label>
+        <input id="customer-email" type="email">
+      </div>
+      <div class="field">
+        <label for="customer-address">Address</label>
+        <textarea id="customer-address"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save customer</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/customers.js' %}"></script>
+{% endblock %}

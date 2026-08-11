@@ -1,0 +1,88 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Deliveries{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Deliveries</h1>
+    <p>Fulfilment for every order that needs shipping.</p>
+  </div>
+</div>
+
+<div class="grid grid-kpi" id="delivery-kpis">
+  <div class="card tile">
+    <span class="tile-label">Active</span>
+    <span class="tile-value" id="kpi-active">—</span>
+    <span class="tile-delta muted">Not yet delivered or closed</span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Awaiting assignment</span>
+    <span class="tile-value" id="kpi-pending">—</span>
+    <span class="tile-delta muted">No rider or courier yet</span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">In transit</span>
+    <span class="tile-value" id="kpi-transit">—</span>
+    <span class="tile-delta muted">On the way to the customer</span>
+  </div>
+  <div class="card tile">
+    <span class="tile-label">Fees collected</span>
+    <span class="tile-value" id="kpi-fees">—</span>
+    <span class="tile-delta muted">Delivered only</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="toolbar">
+    <div class="field">
+      <label for="filter-status">Status</label>
+      <select id="filter-status">
+        <option value="">All statuses</option>
+        <option value="PENDING">Pending</option>
+        <option value="ASSIGNED">Assigned</option>
+        <option value="PICKED_UP">Picked up</option>
+        <option value="IN_TRANSIT">In transit</option>
+        <option value="DELIVERED">Delivered</option>
+        <option value="FAILED">Failed</option>
+        <option value="CANCELLED">Cancelled</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filter-active">
+        <input type="checkbox" id="filter-active" style="width:auto;margin-right:6px;" checked>
+        Active only
+      </label>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th><th>Recipient</th><th>Address</th>
+          <th>Method</th><th>Status</th><th class="num">Fee</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="delivery-rows"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="delivery-pager"></div>
+</div>
+
+<div class="modal-backdrop" id="delivery-modal" hidden>
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <h2 id="delivery-title">Delivery</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="delivery-error" hidden></div>
+    <div id="delivery-detail"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/deliveries.js' %}"></script>
+{% endblock %}

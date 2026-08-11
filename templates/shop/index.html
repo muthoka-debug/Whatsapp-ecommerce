@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ business_name }}{% endblock %}
+
+{% block body %}
+<header class="shop-header">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="brand-mark"></span>
+    <strong id="shop-name">{{ business_name }}</strong>
+  </div>
+  <button class="btn" id="open-cart" type="button">
+    Cart <span class="cart-count" id="cart-count">0</span>
+  </button>
+</header>
+
+<main class="shop-main">
+  <div class="alert alert-error" id="shop-error" hidden></div>
+
+  <section class="shop-banner" id="shop-banner" hidden>
+    <h1 id="banner-title"></h1>
+    <p id="banner-text"></p>
+  </section>
+
+  <div class="toolbar">
+    <div class="field">
+      <label for="search">Search</label>
+      <input id="search" placeholder="What are you looking for?">
+    </div>
+  </div>
+
+  <div class="chip-row" id="category-chips"></div>
+
+  <div class="product-grid" id="product-grid">
+    <div class="empty">Loading products…</div>
+  </div>
+  <div class="pager" id="shop-pager"></div>
+</main>
+
+{# Cart drawer #}
+<aside class="cart-drawer" id="cart-drawer" hidden aria-label="Shopping cart">
+  <div class="cart-head">
+    <h2>Your cart</h2>
+    <button class="btn btn-sm" id="close-cart" type="button">Close</button>
+  </div>
+  <div class="cart-body" id="cart-body">
+    <div class="empty">Your cart is empty.</div>
+  </div>
+  <div class="cart-foot">
+    <div class="cart-total"><span>Subtotal</span><span id="cart-subtotal">—</span></div>
+    <button class="btn btn-primary" id="go-checkout" style="width:100%;" type="button" disabled>Checkout</button>
+  </div>
+</aside>
+
+{# Checkout #}
+<div class="modal-backdrop" id="checkout-modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Checkout</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="checkout-error" hidden></div>
+    <form id="checkout-form">
+      <div class="field-row">
+        <div class="field">
+          <label for="customer_name">Your name</label>
+          <input id="customer_name" required>
+        </div>
+        <div class="field">
+          <label for="customer_phone">Phone</label>
+          <input id="customer_phone" placeholder="07XXXXXXXX" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="customer_email">Email (optional)</label>
+        <input id="customer_email" type="email">
+      </div>
+      <div class="field">
+        <label for="delivery_address">Delivery address</label>
+        <textarea id="delivery_address" required></textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="delivery_phone">Delivery phone</label>
+          <input id="delivery_phone" placeholder="07XXXXXXXX" required>
+        </div>
+        <div class="field">
+          <label for="payment_method">Payment</label>
+          <select id="payment_method">
+            <option value="CASH">Cash on delivery</option>
+            <option value="MPESA">M-Pesa</option>
+            <option value="CARD">Card</option>
+            <option value="BANK">Bank transfer</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="mpesa-field" hidden>
+        <label for="mpesa_phone">M-Pesa phone</label>
+        <input id="mpesa_phone" placeholder="07XXXXXXXX">
+      </div>
+      <div class="field">
+        <label for="delivery_notes">Delivery notes (optional)</label>
+        <textarea id="delivery_notes"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Back</button>
+        <button class="btn btn-primary" type="submit" id="place-order">Place order</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Confirmation #}
+<div class="modal-backdrop" id="done-modal" hidden>
+  <div class="modal" style="max-width:420px;text-align:center;">
+    <h2 style="margin-bottom:8px;">Order placed</h2>
+    <p class="secondary" id="done-text" style="margin-top:0;"></p>
+    <div class="modal-actions" style="justify-content:center;">
+      <button class="btn btn-primary" id="done-close" type="button">Keep shopping</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{% static 'js/shop.js' %}" data-slug="{{ slug }}"></script>
+{% endblock %}

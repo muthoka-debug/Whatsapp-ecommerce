@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sign in · Commerce Platform{% endblock %}
+
+{% block body %}
+<div class="auth-wrap">
+  <div class="card auth-card">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">Commerce Platform</span>
+    </div>
+
+    <h1 style="font-size:1.15rem;margin-bottom:4px;">Sign in</h1>
+    <p class="secondary" style="margin:0 0 16px;font-size:0.88rem;">
+      Use your staff account to manage your business.
+    </p>
+
+    <div class="alert alert-error" id="login-error" hidden></div>
+
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" type="submit" id="login-submit" style="width:100%;">Sign in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{% static 'js/login.js' %}"></script>
+{% endblock %}

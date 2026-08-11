@@ -1,0 +1,177 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Products{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Products</h1>
+    <p>Your catalogue and stock levels.</p>
+  </div>
+  <button class="btn btn-primary" id="new-product" type="button">New product</button>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <div class="field">
+      <label for="filter-search">Search</label>
+      <input id="filter-search" placeholder="Name, SKU or barcode">
+    </div>
+    <div class="field">
+      <label for="filter-category">Category</label>
+      <select id="filter-category"><option value="">All categories</option></select>
+    </div>
+    <div class="field">
+      <label for="filter-status">Status</label>
+      <select id="filter-status">
+        <option value="">All</option>
+        <option value="true">Active</option>
+        <option value="false">Inactive</option>
+      </select>
+    </div>
+    <button class="btn btn-sm" id="new-category" type="button">Add category</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th><th>Category</th><th>SKU</th>
+          <th class="num">Price</th><th class="num">Stock</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="product-rows"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="product-pager"></div>
+</div>
+
+{# Product create/edit #}
+<div class="modal-backdrop" id="product-modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="product-modal-title">New product</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="product-error" hidden></div>
+    <form id="product-form">
+      <input type="hidden" id="product-id">
+      <div class="field">
+        <label for="product-name">Name</label>
+        <input id="product-name" required>
+      </div>
+      <div class="field">
+        <label for="product-description">Description</label>
+        <textarea id="product-description"></textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="product-price">Price</label>
+          <input id="product-price" type="number" step="0.01" min="0" required>
+        </div>
+        <div class="field">
+          <label for="product-compare">Compare-at price</label>
+          <input id="product-compare" type="number" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="product-stock">Stock</label>
+          <input id="product-stock" type="number" step="1" min="0" value="0">
+        </div>
+        <div class="field">
+          <label for="product-threshold">Low-stock threshold</label>
+          <input id="product-threshold" type="number" step="1" min="0" value="5">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="product-category">Category</label>
+          <select id="product-category"><option value="">None</option></select>
+        </div>
+        <div class="field">
+          <label for="product-sku">SKU</label>
+          <input id="product-sku" placeholder="Generated if blank">
+        </div>
+      </div>
+      <div class="field">
+        <label for="product-active">
+          <input type="checkbox" id="product-active" checked style="width:auto;margin-right:6px;">
+          Active (visible in the storefront)
+        </label>
+      </div>
+      <div class="field">
+        <label for="product-featured">
+          <input type="checkbox" id="product-featured" style="width:auto;margin-right:6px;">
+          Featured
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="submit" id="product-save">Save product</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Stock adjustment #}
+<div class="modal-backdrop" id="stock-modal" hidden>
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-head">
+      <h2>Adjust stock</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="stock-error" hidden></div>
+    <p class="secondary" id="stock-context" style="margin-top:0;font-size:0.88rem;"></p>
+    <form id="stock-form">
+      <input type="hidden" id="stock-product-id">
+      <div class="field">
+        <label for="stock-action">Action</label>
+        <select id="stock-action">
+          <option value="add">Add stock</option>
+          <option value="subtract">Remove stock</option>
+          <option value="set">Set exact quantity</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="stock-quantity">Quantity</label>
+        <input id="stock-quantity" type="number" min="1" step="1" value="1" required>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Update stock</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Category #}
+<div class="modal-backdrop" id="category-modal" hidden>
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-head">
+      <h2>New category</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="category-error" hidden></div>
+    <form id="category-form">
+      <div class="field">
+        <label for="category-name">Name</label>
+        <input id="category-name" required>
+      </div>
+      <div class="field">
+        <label for="category-description">Description</label>
+        <textarea id="category-description"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Create category</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/products.js' %}"></script>
+{% endblock %}

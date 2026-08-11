@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Chrome shared by every dashboard page: sidebar, business switcher, sign-out.
+Pages fill `page` with their own content and `page_scripts` with their module.
+{% endcomment %}
+
+{% block body %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name" id="brand-name">Commerce</span>
+    </div>
+
+    <nav class="nav">
+      <a href="/dashboard/" class="{% if nav == 'dashboard' %}current{% endif %}">Dashboard</a>
+      <a href="/dashboard/orders/" class="{% if nav == 'orders' %}current{% endif %}">Orders</a>
+      <a href="/dashboard/products/" class="{% if nav == 'products' %}current{% endif %}">Products</a>
+      <a href="/dashboard/customers/" class="{% if nav == 'customers' %}current{% endif %}">Customers</a>
+      <a href="/dashboard/deliveries/" class="{% if nav == 'deliveries' %}current{% endif %}">Deliveries</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="field">
+        <label for="business-switcher">Business</label>
+        <select id="business-switcher"></select>
+      </div>
+      <a class="btn btn-sm" id="view-shop" href="#" target="_blank" rel="noopener" hidden>View storefront</a>
+      <button class="btn btn-sm" id="sign-out" type="button">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="alert alert-error" id="page-error" hidden></div>
+    {% block page %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{% static 'js/shell.js' %}"></script>
+{% block page_scripts %}{% endblock %}
+{% endblock %}

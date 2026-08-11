@@ -1,0 +1,69 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Orders{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Orders</h1>
+    <p>Every order and where it has got to.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <div class="field">
+      <label for="filter-status">Status</label>
+      <select id="filter-status">
+        <option value="">All statuses</option>
+        <option value="PENDING">Pending</option>
+        <option value="CONFIRMED">Confirmed</option>
+        <option value="PAID">Paid</option>
+        <option value="PROCESSING">Processing</option>
+        <option value="READY">Ready</option>
+        <option value="OUT_FOR_DELIVERY">Out for delivery</option>
+        <option value="DELIVERED">Delivered</option>
+        <option value="CANCELLED">Cancelled</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filter-start">From</label>
+      <input id="filter-start" type="date">
+    </div>
+    <div class="field">
+      <label for="filter-end">To</label>
+      <input id="filter-end" type="date">
+    </div>
+    <button class="btn btn-sm" id="clear-filters" type="button">Clear</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th><th>Customer</th><th>Channel</th><th>Status</th>
+          <th>Placed</th><th class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody id="order-rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="order-pager"></div>
+</div>
+
+<div class="modal-backdrop" id="order-modal" hidden>
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-head">
+      <h2 id="order-title">Order</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="order-error" hidden></div>
+    <div id="order-detail"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/orders.js' %}"></script>
+{% endblock %}

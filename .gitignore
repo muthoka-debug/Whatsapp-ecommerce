@@ -1,0 +1,45 @@
+# Secrets — never commit
+.env
+*.pem
+*.key
+
+# Local database
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Django
+/static/
+/staticfiles/
+/media/
+*.log
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

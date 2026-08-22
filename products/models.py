@@ -137,7 +137,34 @@ class Product(BusinessOwnedModel):
             )
 
         self.refresh_from_db(fields=['stock'])
+        self._announce_if_low()
         return self.stock
+
+    def _announce_if_low(self):
+        """Emit a stock event when a sale takes this product to its threshold.
+
+        The daily sweep would catch it too, but the owner of a fast-moving line
+        wants to know at the moment it sells out, not the next morning. The
+        idempotency key is per product per day, so the two paths converge on a
+        single alert rather than doubling up.
+        """
+        if self.stock > self.low_stock_threshold:
+            return
+
+        from django.utils import timezone
+
+        from automation.events import Event
+        from automation.services import emit
+
+        event = Event.PRODUCT_OUT_OF_STOCK if self.stock <= 0 else Event.PRODUCT_STOCK_LOW
+        emit(
+            event,
+            self.business,
+            subject=self,
+            idempotency_key=f'stock:{self.pk}:{timezone.now().date().isoformat()}',
+            stock=self.stock,
+            threshold=self.low_stock_threshold,
+        )
 
     def increase_stock(self, quantity):
         """Atomically increment stock (restock, or returning a cancelled order)."""

@@ -1,5 +1,4 @@
-﻿import logging
-import uuid
+﻿import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -28,7 +27,7 @@ from .serializers import (
     StorefrontSettingSerializer,
 )
 
-logger = logging.getLogger(__name__)
+
 class CartViewSet(viewsets.GenericViewSet):
     """ViewSet for managing shopping cart"""
     permission_classes = [AllowAny]
@@ -383,9 +382,10 @@ class CartViewSet(viewsets.GenericViewSet):
             # Clear cart
             cart.clear()
 
-        # Outside the transaction: notification delivery is best-effort and
-        # must never roll back a placed order.
-        self._send_order_confirmation(business, order)
+            # Announce inside the transaction: emit() defers the enqueue to
+            # transaction.on_commit, so the worker only ever sees a committed
+            # order, and a rollback here sends nothing.
+            self._announce_order_created(business, order)
 
         return Response({
             'order': OrderSerializer(order).data,
@@ -399,15 +399,18 @@ class CartViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_201_CREATED)
 
     @staticmethod
-    def _send_order_confirmation(business, order):
-        from notifications.services import NotificationService
+    def _announce_order_created(business, order):
+        from automation.events import Event
+        from automation.services import emit
 
-        try:
-            NotificationService(business).send_order_confirmation(order)
-        except Exception:
-            logger.exception(
-                'Failed to send order confirmation for order %s', order.pk
-            )
+        emit(
+            Event.ORDER_CREATED,
+            business,
+            subject=order,
+            idempotency_key=f'order-created:{order.pk}',
+            order_number=order.order_number,
+            source='STOREFRONT',
+        )
 
 
 class StorefrontViewSet(viewsets.GenericViewSet):

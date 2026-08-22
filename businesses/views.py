@@ -23,11 +23,13 @@ class BusinessViewSet(viewsets.ModelViewSet):
     queryset = Business.objects.none()
 
     def get_queryset(self):
-        # Users can only see businesses they are members of
+        # Users can only see businesses they are members of. Ordered because the
+        # model has no default ordering: an unordered queryset lets the paginator
+        # return the same business on two pages and drop another entirely.
         return Business.objects.filter(
             members__user=self.request.user,
             members__is_active=True
-        ).distinct()
+        ).distinct().order_by('name')
 
     def _membership_for(self, business, required_roles=None):
         """The caller's active membership in ``business``, or None.

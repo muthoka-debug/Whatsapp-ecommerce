@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone as dt_timezone
 
 from django.db import transaction
+from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
@@ -15,7 +16,13 @@ from core.permissions import IsBusinessManagerOrOwner, IsBusinessMember
 from customers.models import Customer
 from orders.models import Order
 
-from .client import WhatsAppAPIError, WhatsAppClient
+from .client import WhatsAppAPIError
+from .providers import get_client
+from .messaging import (
+    OutsideServiceWindow,
+    send_to_customer,
+    service_window_expires_at,
+)
 from .models import (
     WhatsAppChatbotFlow,
     WhatsAppConversation,
@@ -33,7 +40,7 @@ from .serializers import (
     WhatsAppTemplateCreateSerializer,
     WhatsAppTemplateSerializer,
 )
-from .webhooks import verify_signature
+from .webhooks import verify_signature, verify_twilio_signature
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +114,24 @@ class WhatsAppConversationViewSet(viewsets.ModelViewSet):
 
         content = data.get('content', '')
         try:
-            provider_message_id = WhatsAppClient(whatsapp_settings).send_text(
-                conversation.whatsapp_id, content
+            delivery = send_to_customer(
+                request.current_business,
+                conversation.whatsapp_id,
+                content,
+                setting=whatsapp_settings,
+                conversation=conversation,
+            )
+        except OutsideServiceWindow as exc:
+            # The reply is late rather than broken, so this is a 400 the agent
+            # can act on ("send an approved template"), not a gateway failure.
+            return Response(
+                {
+                    'error': str(exc),
+                    'service_window_expired_at': service_window_expires_at(
+                        conversation
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except WhatsAppAPIError as exc:
             logger.error('Failed to send WhatsApp message: %s', exc)
@@ -120,9 +143,9 @@ class WhatsAppConversationViewSet(viewsets.ModelViewSet):
         message = WhatsAppMessage.objects.create(
             business=request.current_business,
             conversation=conversation,
-            message_id=provider_message_id or f'MSG-{timezone.now().timestamp()}',
+            message_id=delivery.message_id or f'MSG-{timezone.now().timestamp()}',
             direction='OUTGOING',
-            message_type=data['message_type'],
+            message_type='TEMPLATE' if delivery.used_template else data['message_type'],
             content=content,
             media_url=data.get('media_url') or None,
             sent_at=timezone.now(),
@@ -205,6 +228,36 @@ class WhatsAppChatbotFlowViewSet(viewsets.ModelViewSet):
         serializer.save(business=self.request.current_business)
 
 
+def _digits(value):
+    """Strip +, spaces and punctuation so stored and delivered numbers compare."""
+    return ''.join(ch for ch in (value or '') if ch.isdigit())
+
+
+def _settings_for_metadata(metadata):
+    """Find the business a webhook payload belongs to.
+
+    Match on ``phone_number_id`` first: it is Meta's own stable identifier and
+    is exactly the value ``setup_whatsapp`` stored. ``display_phone_number``
+    arrives without a leading "+" while operators naturally save theirs with
+    one, so that fallback compares digits only.
+    """
+    phone_number_id = metadata.get('phone_number_id')
+    if phone_number_id:
+        setting = WhatsAppSetting.objects.select_related('business').filter(
+            phone_number_id=phone_number_id
+        ).first()
+        if setting:
+            return setting
+
+    wanted = _digits(metadata.get('display_phone_number'))
+    if not wanted:
+        return None
+    for setting in WhatsAppSetting.objects.select_related('business').all():
+        if _digits(setting.display_phone_number) == wanted:
+            return setting
+    return None
+
+
 @extend_schema(exclude=True)
 class WhatsAppWebhookView(APIView):
     """Webhook endpoint for WhatsApp Business API.
@@ -237,7 +290,11 @@ class WhatsAppWebhookView(APIView):
             logger.warning('Invalid webhook verify token')
             return Response('Verification failed', status=status.HTTP_403_FORBIDDEN)
 
-        return Response(challenge, status=status.HTTP_200_OK)
+        # Plain text, not a DRF Response: Meta compares the body byte for byte
+        # against the challenge it sent. JSON rendering would return
+        # "1158201444" with quotes, which never matches, and the only symptom is
+        # "The URL couldn't be validated" in the Meta dashboard.
+        return HttpResponse(challenge or '', content_type='text/plain')
 
     def post(self, request):
         """Handle incoming webhook events."""
@@ -272,14 +329,15 @@ class WhatsAppWebhookView(APIView):
         sender = message.get('from')
         message_id = message.get('id')
         message_type = (message.get('type') or 'text').upper()
-        recipient = value.get('metadata', {}).get('display_phone_number')
+        metadata = value.get('metadata', {})
 
-        try:
-            whatsapp_settings = WhatsAppSetting.objects.select_related(
-                'business'
-            ).get(display_phone_number=recipient)
-        except WhatsAppSetting.DoesNotExist:
-            logger.error('No WhatsApp settings for phone number %r', recipient)
+        whatsapp_settings = _settings_for_metadata(metadata)
+        if whatsapp_settings is None:
+            logger.error(
+                'No WhatsApp settings for phone_number_id %r / %r',
+                metadata.get('phone_number_id'),
+                metadata.get('display_phone_number'),
+            )
             return
 
         business = whatsapp_settings.business
@@ -446,7 +504,7 @@ class WhatsAppWebhookView(APIView):
             return
 
         try:
-            provider_message_id = WhatsAppClient(whatsapp_settings).send_text(
+            provider_message_id = get_client(whatsapp_settings).send_text(
                 conversation.whatsapp_id, response_text
             )
         except WhatsAppAPIError as exc:
@@ -493,10 +551,148 @@ class WhatsAppWebhookView(APIView):
             return
 
         try:
-            WhatsAppClient(whatsapp_settings).send_text(
+            get_client(whatsapp_settings).send_text(
                 conversation.whatsapp_id,
                 f"✅ Order #{order.order_number} has been created! "
                 "We'll confirm shortly.",
             )
         except WhatsAppAPIError as exc:
             logger.error('Order confirmation message failed: %s', exc)
+
+
+@extend_schema(exclude=True)
+class TwilioWhatsAppWebhookView(APIView):
+    """Webhook endpoint for WhatsApp messages arriving through Twilio.
+
+    Twilio posts form-encoded fields, not Meta's nested JSON. Rather than a
+    second copy of the message-handling logic, each payload is translated into
+    the shape :class:`WhatsAppWebhookView` already processes, so inbound
+    messages create the same customers, conversations and chatbot replies no
+    matter which provider carried them.
+
+    Public by necessity, so every POST is authenticated by its
+    X-Twilio-Signature before we act on it.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    # Same reasoning as the Meta webhook: retries and bursts are normal, and the
+    # signature check is the real gate.
+    throttle_classes = []
+
+    def post(self, request):
+        setting = _twilio_setting_for(request.POST.get('To'))
+        if setting is None:
+            # Nothing to verify against, and nowhere to file the message.
+            logger.error(
+                'Twilio webhook for unknown sender number %r',
+                request.POST.get('To'),
+            )
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        if not verify_twilio_signature(request, setting.access_token):
+            return Response(
+                {'error': 'Invalid signature'}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            params = {key: request.POST[key] for key in request.POST}
+            logger.debug('Received Twilio webhook: %s', json.dumps(params)[:2000])
+
+            handler = WhatsAppWebhookView()
+
+            if params.get('MessageStatus'):
+                handler.process_status_update(_twilio_status_payload(params))
+            elif params.get('MessageSid'):
+                message, value = _twilio_message_payload(params, setting)
+                handler.process_message(message, value)
+
+            # Twilio accepts an empty 200 as "handled, send no reply".
+            return HttpResponse(status=status.HTTP_204_NO_CONTENT)
+        except Exception:
+            # Log the traceback, then still 2xx so Twilio does not hot-loop
+            # retries on a payload we will never be able to parse.
+            logger.exception('Error processing Twilio webhook')
+            return HttpResponse(status=status.HTTP_204_NO_CONTENT)
+
+
+def _twilio_setting_for(to_address):
+    """Find the business whose Twilio sender number received this webhook."""
+    wanted = _digits(to_address)
+    if not wanted:
+        return None
+
+    for setting in WhatsAppSetting.objects.select_related('business').filter(
+        provider='TWILIO'
+    ):
+        if wanted in (
+            _digits(setting.phone_number_id),
+            _digits(setting.display_phone_number),
+        ):
+            return setting
+    return None
+
+
+def _twilio_status_payload(params):
+    """Translate a Twilio status callback into Meta's status shape."""
+    return {
+        'id': params.get('MessageSid'),
+        # Twilio uses the same words for the two statuses we record, but
+        # capitalisation varies by API version.
+        'status': (params.get('MessageStatus') or '').lower(),
+        'recipient_id': _digits(params.get('To')),
+        # Twilio sends no timestamp on status callbacks; process_status_update
+        # falls back to now() when this is absent.
+        'timestamp': '',
+    }
+
+
+def _twilio_message_payload(params, setting):
+    """Translate an inbound Twilio message into Meta's ``(message, value)`` pair.
+
+    Returns the two arguments ``WhatsAppWebhookView.process_message`` takes.
+    """
+    body = params.get('Body') or ''
+    message = {
+        'from': _digits(params.get('From')),
+        'id': params.get('MessageSid'),
+        # Twilio omits a send timestamp on inbound messages; process_message
+        # falls back to now(), which is within a second of the truth here.
+        'timestamp': '',
+        'type': 'text',
+        'text': {'body': body},
+    }
+
+    media_count = int(params.get('NumMedia') or 0)
+    if media_count:
+        # Twilio media URLs need the account's basic auth to fetch, unlike
+        # Meta's, which need a bearer token — both are provider-scoped, so
+        # anything rendering media has to go back through the provider anyway.
+        media_url = params.get('MediaUrl0') or ''
+        content_type = params.get('MediaContentType0') or ''
+        media_kind = _twilio_media_kind(content_type)
+        message['type'] = media_kind
+        message[media_kind] = (
+            {'filename': body, 'link': media_url}
+            if media_kind == 'document'
+            else {'caption': body, 'link': media_url}
+        )
+
+    value = {
+        'metadata': {
+            'phone_number_id': setting.phone_number_id,
+            'display_phone_number': setting.display_phone_number,
+        },
+        'contacts': [{
+            'profile': {'name': params.get('ProfileName') or ''},
+            'wa_id': _digits(params.get('From')),
+        }],
+        'messages': [message],
+    }
+    return message, value
+
+
+def _twilio_media_kind(content_type):
+    """Map a MIME type onto the message types WhatsAppMessage records."""
+    major = (content_type or '').split('/')[0]
+    return major if major in ('image', 'video', 'audio') else 'document'

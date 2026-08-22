@@ -53,6 +53,11 @@ class DeliveriesPage(DashboardPageView):
     nav = 'deliveries'
 
 
+class AutomationPage(DashboardPageView):
+    template_name = 'dashboard/automation.html'
+    nav = 'automation'
+
+
 class ShopPage(TemplateView):
     """Public storefront at /shop/<slug>/.
 

@@ -70,8 +70,33 @@ class Payment(BusinessOwnedModel):
             self.order.status = 'PAID'
             self.order.paid_at = timezone.now()
             self.order.save(update_fields=['status', 'paid_at', 'updated_at'])
+            self._announce('ORDER_PAID', self.order, f'order-status:{self.order.pk}:PAID')
 
         self.save()
+        self._announce('PAYMENT_COMPLETED', self, f'payment-completed:{self.pk}')
+
+    def fail_payment(self, reason=''):
+        """Mark this payment failed and announce it.
+
+        Idempotent: providers retry failure callbacks too, and a second one
+        must not re-alert staff.
+        """
+        if self.status == 'FAILED':
+            return
+
+        self.status = 'FAILED'
+        if reason:
+            self.metadata = {**(self.metadata or {}), 'failure_reason': reason}
+        self.save(update_fields=['status', 'metadata', 'updated_at'])
+        self._announce('PAYMENT_FAILED', self, f'payment-failed:{self.pk}', reason=reason)
+
+    def _announce(self, event, subject, key, **payload):
+        """Emit an automation event. Imported lazily to keep payments free of a
+        hard dependency on the automation app, and never allowed to fail the
+        payment write that preceded it."""
+        from automation.services import emit
+
+        emit(event, self.business, subject=subject, idempotency_key=key, **payload)
 
 
 class PaymentLog(BusinessOwnedModel):
@@ -192,22 +217,39 @@ class MpesaTransaction(TenantAwareModel):
             self.payment.mpesa_receipt = mpesa_receipt
             self.payment.completed_at = timezone.now()
             self.payment.save()
-            
+
             # Update order status
             order = self.payment.order
             if order:
                 order.status = 'PAID'
                 order.paid_at = timezone.now()
                 order.save()
-    
+                self.payment._announce(
+                    'ORDER_PAID', order, f'order-status:{order.pk}:PAID'
+                )
+
+            self.payment._announce(
+                'PAYMENT_COMPLETED',
+                self.payment,
+                f'payment-completed:{self.payment.pk}',
+                mpesa_receipt=mpesa_receipt,
+            )
+
     def fail(self, result_code, result_desc):
-        """Mark transaction as failed"""
+        """Mark transaction as failed.
+
+        Idempotent for the same reason complete() is — Safaricom retries.
+        """
+        if self.status == 'FAILED':
+            return
+
         self.status = 'FAILED'
         self.result_code = result_code
         self.result_desc = result_desc
         self.save()
         
-        # Update associated payment
+        # Update associated payment. fail_payment() writes the row and emits
+        # PAYMENT_FAILED, so staff hear about it without the callback thread
+        # waiting on a notification.
         if self.payment:
-            self.payment.status = 'FAILED'
-            self.payment.save(update_fields=['status', 'updated_at'])
+            self.payment.fail_payment(reason=result_desc)

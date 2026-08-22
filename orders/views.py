@@ -1,5 +1,3 @@
-import logging
-
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -11,8 +9,6 @@ from payments.models import Payment
 
 from .models import Order
 from .serializers import OrderCreateSerializer, OrderSerializer
-
-logger = logging.getLogger(__name__)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -106,25 +102,38 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         order.save(update_fields=updated_fields)
 
-        self._notify_status_change(order, old_status, new_status)
+        self._announce_status_change(order, old_status, new_status)
 
         serializer = self.get_serializer(order)
         return Response(serializer.data)
 
     @staticmethod
-    def _notify_status_change(order, old_status, new_status):
-        """Best-effort notification; a delivery failure must not fail the update."""
-        from notifications.services import NotificationService
+    def _announce_status_change(order, old_status, new_status):
+        """Hand the transition to automation and return.
 
-        try:
-            NotificationService(order.business).send_order_status_update(
-                order, old_status, new_status
-            )
-        except Exception:
-            logger.exception(
-                'Failed to send status notification for order %s', order.pk
-            )
-    
+        The view's job ends once the order is saved. Deciding what a status
+        change should trigger — and doing the slow outbound work — belongs to
+        the automation app, off the request thread.
+        """
+        from automation.events import ORDER_STATUS_EVENTS
+        from automation.services import emit
+
+        event = ORDER_STATUS_EVENTS.get(new_status)
+        if event is None:
+            return
+
+        emit(
+            event,
+            order.business,
+            subject=order,
+            # One announcement per transition. A double-submit that writes the
+            # same status twice must not message the customer twice.
+            idempotency_key=f'order-status:{order.pk}:{new_status}',
+            old_status=old_status,
+            new_status=new_status,
+            order_number=order.order_number,
+        )
+
     @action(detail=True, methods=['get'])
     def payments(self, request, pk=None):
         order = self.get_object()

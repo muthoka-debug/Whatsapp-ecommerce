@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     WhatsAppConversationViewSet, WhatsAppMessageViewSet,
     WhatsAppTemplateViewSet, WhatsAppSettingViewSet,
-    WhatsAppChatbotFlowViewSet, WhatsAppWebhookView
+    WhatsAppChatbotFlowViewSet, WhatsAppWebhookView,
+    TwilioWhatsAppWebhookView
 )
 
 router = DefaultRouter()
@@ -17,4 +18,7 @@ urlpatterns = [
     path('', include(router.urls)),
     # Webhook endpoint (public)
     path('webhook/', WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
+    # Twilio posts form-encoded fields to its own path; same processing behind it.
+    path('webhook/twilio/', TwilioWhatsAppWebhookView.as_view(),
+         name='whatsapp-webhook-twilio'),
 ]

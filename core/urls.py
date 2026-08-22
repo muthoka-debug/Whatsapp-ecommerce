@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/v1/whatsapp/', include('whatsapp_integration.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/notifications/', include('notifications.urls')),
+    path('api/v1/automation/', include('automation.urls')),
 
     # API documentation
     path('api/schema.json', SpectacularAPIView.as_view(), name='api-schema'),

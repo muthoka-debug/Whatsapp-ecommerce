@@ -90,12 +90,15 @@ class WhatsAppTemplate(TenantAwareModel):
         ('DELIVERY_UPDATE', 'Delivery Update'),
         ('WELCOME', 'Welcome Message'),
         ('ABANDONED_CART', 'Abandoned Cart Recovery'),
+        ('FEEDBACK_REQUEST', 'Feedback Request'),
         ('CUSTOM', 'Custom'),
     ]
-    
+
     name = models.CharField(max_length=100)
     category = models.CharField(max_length=50, choices=TEMPLATE_CATEGORY_CHOICES)
-    template_id = models.CharField(max_length=255, blank=True)  # WhatsApp template ID
+    # The name the template is registered under at Meta. Outbound sends made
+    # after the 24-hour window closes use this; see whatsapp_integration.messaging.
+    template_id = models.CharField(max_length=255, blank=True)
     language = models.CharField(max_length=10, default='en')
     subject = models.CharField(max_length=100)
     body = models.TextField()
@@ -141,9 +144,34 @@ class WhatsAppWebhookLog(TenantAwareModel):
 
 
 class WhatsAppSetting(TenantAwareModel):
-    """WhatsApp Business API settings for each business"""
-    # WhatsApp Business API credentials.
-    # access_token is encrypted at rest, see core.fields.EncryptedTextField.
+    """WhatsApp credentials for one business, on either supported provider.
+
+    Both providers speak to the same WhatsApp network, so the credential fields
+    are shared rather than duplicated per provider. ``provider`` says how to
+    read them:
+
+    ================== ===================== ==========================
+    Field              META                  TWILIO
+    ================== ===================== ==========================
+    phone_number_id    Meta phone number id  sender number, digits only
+    business_account_id  WABA id             Account SID (AC...)
+    access_token       Meta access token     Auth Token
+    ================== ===================== ==========================
+
+    ``access_token`` is encrypted at rest either way, see
+    core.fields.EncryptedTextField. Use whatsapp_integration.providers.get_client
+    to build the right client for a setting instead of instantiating one.
+    """
+
+    PROVIDER_CHOICES = [
+        ('META', 'Meta WhatsApp Cloud API'),
+        ('TWILIO', 'Twilio WhatsApp'),
+    ]
+
+    provider = models.CharField(
+        max_length=20, choices=PROVIDER_CHOICES, default='META'
+    )
+
     phone_number_id = models.CharField(max_length=100)
     business_account_id = models.CharField(max_length=100)
     access_token = EncryptedTextField()
@@ -170,7 +198,9 @@ class WhatsAppSetting(TenantAwareModel):
     
     # Webhook configuration.
     # The verify token is what Meta echoes back during webhook setup; it must be
-    # unique so a token resolves to exactly one business.
+    # unique so a token resolves to exactly one business. Twilio has no such
+    # handshake — it authenticates with X-Twilio-Signature — but the column is
+    # NOT NULL and unique, so Twilio rows still get a generated value.
     webhook_url = models.URLField(max_length=500, blank=True)
     webhook_verify_token = models.CharField(max_length=100, unique=True)
 

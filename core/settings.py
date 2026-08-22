@@ -10,8 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import sys
 from pathlib import Path
 
+from celery.schedules import crontab
 from corsheaders.defaults import default_headers
 from decouple import Csv, config
 
@@ -61,6 +63,7 @@ INSTALLED_APPS = [
     'core',
     'notifications',
     'analytics',
+    'automation',
     'frontend',
 ]
 
@@ -236,6 +239,9 @@ WHATSAPP_API_BASE_URL = config('WHATSAPP_API_BASE_URL', default='https://graph.f
 TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
 TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER', default='')
+# Twilio's WhatsApp sender. Defaults to the shared sandbox number, which
+# works without Meta review; see setup_twilio_whatsapp.
+TWILIO_WHATSAPP_NUMBER = config('TWILIO_WHATSAPP_NUMBER', default='+14155238886')
 
 # Email Settings
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
@@ -299,6 +305,141 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# --------------------------------------------------------------------------
+# Redis — cache and Celery broker.
+#
+# One server, two logical databases: /0 for the task queue, /1 for the cache,
+# so a `cache.clear()` can never drop queued tasks.
+# --------------------------------------------------------------------------
+
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379')
+
+# The test suite must not need a running Redis: DRF throttling reads the cache
+# on every request, so a Redis-only cache turns "Redis isn't up" into dozens of
+# unrelated test errors, and CI would need a service container before it could
+# run a single test.
+TESTING = 'test' in sys.argv
+
+USE_REDIS_CACHE = config('USE_REDIS_CACHE', default=True, cast=bool) and not TESTING
+
+if USE_REDIS_CACHE:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': f'{REDIS_URL}/1',
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                # In development a stopped Redis should not turn every API call
+                # into a 500: DRF reads the cache on each request to throttle it.
+                # Swallowing the connection error degrades throttling to "always
+                # allow" instead. Production keeps raising, so a broken cache is
+                # visible rather than silently unthrottled.
+                'IGNORE_EXCEPTIONS': DEBUG,
+            },
+            'KEY_PREFIX': 'commerce',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'commerce-local',
+        }
+    }
+
+
+# --------------------------------------------------------------------------
+# Celery — background processing.
+#
+# Django saves the business record; Celery does the slow, outbound work
+# (WhatsApp, SMS, email, payment providers). Tasks carry IDs rather than model
+# instances and re-read from the database, so a task never acts on a stale row.
+# --------------------------------------------------------------------------
+
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=f'{REDIS_URL}/0')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=f'{REDIS_URL}/0')
+
+# Nothing in this codebase reads a task's return value — the AutomationRun row
+# is the record of what happened. Skipping result storage removes a Redis
+# round-trip per task and, more importantly, removes the result backend from
+# the failure path when Redis is unreachable.
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_RESULT_BACKEND_ALWAYS_RETRY = False
+
+# Publishing happens inside the HTTP request, so it must fail fast. Celery's
+# defaults retry a lost broker ~20 times over a minute: measured with Redis
+# down, a single emit() blocked for 60 seconds before giving up. Three quick
+# attempts, then raise — emit() catches it and the request continues.
+CELERY_TASK_PUBLISH_RETRY = True
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    'max_retries': 2,
+    'interval_start': 0,
+    'interval_step': 0.2,
+    'interval_max': 0.5,
+}
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'socket_connect_timeout': 2,
+    'socket_timeout': 2,
+    'retry_on_timeout': False,
+}
+# The worker, unlike the web process, may legitimately wait for Redis to come
+# back at startup.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# JSON only: pickle would let anything that can write to Redis run code here.
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
+# Redelivered if the worker dies mid-task. Every task must therefore be safe to
+# run twice — see automation.services.dispatch, which dedupes on an idempotency
+# key before acting.
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+CELERY_TASK_TIME_LIMIT = 300         # hard kill
+CELERY_TASK_SOFT_TIME_LIMIT = 240    # raises SoftTimeLimitExceeded first
+CELERY_RESULT_EXPIRES = 60 * 60 * 24
+
+# Run tasks inline instead of queuing them. Forced on under the test runner so
+# the suite needs no broker; never enable it in production, where it would put
+# the third-party call back inside the HTTP request.
+CELERY_TASK_ALWAYS_EAGER = TESTING or config(
+    'CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool
+)
+# Surface task exceptions in tests rather than swallowing them into a result.
+CELERY_TASK_EAGER_PROPAGATES = True
+
+# Scheduled automation. Delayed one-offs (feedback two days after delivery)
+# are scheduled per-event with apply_async(countdown=...) instead.
+CELERY_BEAT_SCHEDULE = {
+    'sweep-abandoned-carts': {
+        'task': 'automation.tasks.sweep_abandoned_carts',
+        'schedule': crontab(minute=15),                    # hourly, at :15
+    },
+    'sweep-low-stock': {
+        'task': 'automation.tasks.sweep_low_stock',
+        'schedule': crontab(hour=7, minute=0),             # daily 07:00
+    },
+    'sweep-inactive-customers': {
+        'task': 'automation.tasks.sweep_inactive_customers',
+        'schedule': crontab(hour=8, minute=0, day_of_week=1),   # Mondays 08:00
+    },
+}
+
+
+# --------------------------------------------------------------------------
+# Automation tuning — thresholds the scheduled sweeps read.
+# --------------------------------------------------------------------------
+
+ABANDONED_CART_AFTER_HOURS = config('ABANDONED_CART_AFTER_HOURS', default=24, cast=int)
+DELIVERY_FEEDBACK_AFTER_HOURS = config('DELIVERY_FEEDBACK_AFTER_HOURS', default=48, cast=int)
+CUSTOMER_INACTIVE_AFTER_DAYS = config('CUSTOMER_INACTIVE_AFTER_DAYS', default=60, cast=int)
 
 
 # Logging — webhook and payment failures must not disappear silently.

@@ -554,6 +554,19 @@ textarea { resize: vertical; min-height: 70px; }
 
 .field { margin-bottom: 12px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+/* Hint under a form control — units, formats, "generated if blank". */
+.field-hint {
+  display: block; margin-top: 4px;
+  font-size: 0.78rem; color: var(--text-muted);
+}
+
+/* Repeatable list of inputs (product image URLs): input + remove per row. */
+.repeat-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.repeat-row input { flex: 1; }
+.repeat-row .btn { flex: none; }
+.repeat-empty { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 8px; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -728,7 +741,7 @@ textarea { resize: vertical; min-height: 70px; }
   .nav { flex-direction: row; flex-wrap: wrap; }
   .nav a { padding: 8px 12px; }
   .content { padding: 0 0 40px; }
-  .field-row { grid-template-columns: 1fr; }
+  .field-row, .field-row-3 { grid-template-columns: 1fr; }
   .tile-spark { margin: 2px -18px -18px; }
 }
 

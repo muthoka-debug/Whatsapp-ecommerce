@@ -1,0 +1,147 @@
+{% extends "dashboard/_shell.html" %}
+{% load static %}
+
+{% block title %}Automation{% endblock %}
+{% block page_title %}Automation{% endblock %}
+
+{% block page %}
+<div class="page-head">
+  <div>
+    <h1>Automation</h1>
+    <p>Every message and alert the system sent on its own — and anything that did not go out.</p>
+  </div>
+</div>
+
+{# Stranded is the solid chip: it is the only figure that means someone must act.
+   A failed run is a message that errored; a stranded one is a message that was
+   never even attempted, which is what a dead worker or broker looks like. #}
+<div class="grid grid-kpi" id="automation-kpis">
+  <div class="card tile">
+    <div class="tile-row">
+      <span class="tile-icon solid">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-stuck">—</span>
+        <span class="tile-label">Stranded</span>
+      </div>
+    </div>
+    <span class="tile-delta muted">Queued but never run — check the worker</span>
+  </div>
+  <div class="card tile">
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-failed">—</span>
+        <span class="tile-label">Failed</span>
+      </div>
+    </div>
+    <span class="tile-delta muted">Ran, but a handler errored</span>
+  </div>
+  <div class="card tile">
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-success">—</span>
+        <span class="tile-label">Completed</span>
+      </div>
+    </div>
+    <span class="tile-delta muted" id="kpi-window">Last 24 hours</span>
+  </div>
+  <div class="card tile">
+    <div class="tile-row">
+      <span class="tile-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v6h6"/><path d="M20 20v-6h-6"/><path d="M20 9a8 8 0 0 0-14.9-3L4 10"/><path d="M4 15a8 8 0 0 0 14.9 3L20 14"/></svg>
+      </span>
+      <div class="tile-figures">
+        <span class="tile-value" id="kpi-total">—</span>
+        <span class="tile-label">Events handled</span>
+      </div>
+    </div>
+    <span class="tile-delta muted">Including skipped and pending</span>
+  </div>
+</div>
+
+<div class="card card-banded" style="margin-top:16px;">
+  <div class="card-band">
+    <h2>Busiest events</h2>
+    <span style="font-size:0.78rem;opacity:0.8;">In the selected window</span>
+  </div>
+  <div class="card-body">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Event</th><th class="num">Runs</th><th class="num">Failed</th></tr></thead>
+        <tbody id="event-rows"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card card-banded" style="margin-top:16px;">
+  <div class="card-band">
+    <h2>Runs</h2>
+    <span style="font-size:0.78rem;opacity:0.8;">Newest first</span>
+  </div>
+  <div class="card-body">
+  <div class="toolbar">
+    <div class="field">
+      <label for="filter-status">Status</label>
+      <select id="filter-status">
+        <option value="">All statuses</option>
+        <option value="PENDING">Pending</option>
+        <option value="SUCCESS">Success</option>
+        <option value="FAILED">Failed</option>
+        <option value="SKIPPED">Skipped</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filter-event">Event</label>
+      <select id="filter-event"><option value="">All events</option></select>
+    </div>
+    <div class="field">
+      <label for="filter-window">Window</label>
+      <select id="filter-window">
+        <option value="24">Last 24 hours</option>
+        <option value="168">Last 7 days</option>
+        <option value="720">Last 30 days</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filter-stuck">
+        <input type="checkbox" id="filter-stuck" style="width:auto;margin-right:6px;">
+        Stranded only
+      </label>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Event</th><th>Subject</th><th>Status</th><th class="num">Took</th><th>When</th><th></th></tr>
+      </thead>
+      <tbody id="run-rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="run-pager"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="run-modal" hidden>
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head">
+      <h2 id="run-title">Run</h2>
+      <button class="btn btn-sm" data-close type="button">Close</button>
+    </div>
+    <div class="alert alert-error" id="run-error" hidden></div>
+    <div id="run-detail"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script type="module" src="{% static 'js/automation.js' %}"></script>
+{% endblock %}

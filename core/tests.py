@@ -7,7 +7,7 @@ that previously took the endpoint down, so they double as regression cover.
 import hashlib
 import hmac
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -457,13 +457,31 @@ class NotificationServiceTests(BaseTenantTestCase):
         customer-facing copy must not be written onto it."""
         from unittest.mock import patch
 
+        from django.utils import timezone as dj_timezone
+
         from notifications.services import NotificationService
+        from whatsapp_integration.models import (
+            WhatsAppConversation,
+            WhatsAppMessage,
+        )
 
         WhatsAppSetting.objects.create(
             business=self.business, phone_number_id='PN1',
             business_account_id='BA1', access_token='tok',
             display_phone_number='254712345678', display_name='Shop',
             webhook_verify_token='verify-xyz',
+        )
+        # A recent inbound message, so free-form text is still allowed and the
+        # send under test is the text one rather than a template.
+        conversation = WhatsAppConversation.objects.create(
+            business=self.business, customer=self.customer,
+            whatsapp_id=self.customer.phone, phone_number=self.customer.phone,
+            customer_name=self.customer.name,
+        )
+        WhatsAppMessage.objects.create(
+            business=self.business, conversation=conversation,
+            message_id='wamid.RECENT', direction='INCOMING',
+            message_type='TEXT', content='hi', sent_at=dj_timezone.now(),
         )
         self.business.whatsapp_auto_order_confirmation = True
         self.business.save(update_fields=['whatsapp_auto_order_confirmation'])
@@ -1271,3 +1289,215 @@ class HealthCheckTests(TestCase):
         response = Client().get('/health/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'healthy')
+
+
+class ServiceWindowTests(BaseTenantTestCase):
+    """WhatsApp rejects free-form messages more than 24 hours after the
+    customer's last one, so outbound sends used to fail for every customer who
+    had not written in recently."""
+
+    def setUp(self):
+        super().setUp()
+        from whatsapp_integration.models import WhatsAppConversation
+
+        self.setting = WhatsAppSetting.objects.create(
+            business=self.business, phone_number_id='PN1',
+            business_account_id='BA1', access_token='tok',
+            display_phone_number='254712345678', display_name='Shop',
+            webhook_verify_token='verify-window',
+        )
+        self.conversation = WhatsAppConversation.objects.create(
+            business=self.business, customer=self.customer,
+            whatsapp_id=self.customer.phone, phone_number=self.customer.phone,
+            customer_name=self.customer.name,
+        )
+
+    def _inbound(self, hours_ago):
+        from django.utils import timezone as dj_timezone
+        from whatsapp_integration.models import WhatsAppMessage
+
+        return WhatsAppMessage.objects.create(
+            business=self.business, conversation=self.conversation,
+            message_id=f'wamid.IN{hours_ago}', direction='INCOMING',
+            message_type='TEXT', content='hi',
+            sent_at=dj_timezone.now() - timedelta(hours=hours_ago),
+        )
+
+    def _template(self, category='ORDER_CONFIRMATION', variables=None):
+        from whatsapp_integration.models import WhatsAppTemplate
+
+        return WhatsAppTemplate.objects.create(
+            business=self.business, name=f'{category.lower()}_v1',
+            category=category, template_id='order_confirmation_v1',
+            language='en', subject='Order', body='Hi {{customer_name}}',
+            variables=['customer_name'] if variables is None else variables,
+        )
+
+    def test_recent_message_keeps_the_window_open(self):
+        from whatsapp_integration.messaging import is_within_service_window
+
+        self._inbound(hours_ago=2)
+        self.assertTrue(is_within_service_window(self.conversation))
+
+    def test_old_message_closes_the_window(self):
+        from whatsapp_integration.messaging import is_within_service_window
+
+        self._inbound(hours_ago=25)
+        self.assertFalse(is_within_service_window(self.conversation))
+
+    def test_no_inbound_message_means_no_window(self):
+        from whatsapp_integration.messaging import is_within_service_window
+
+        self.assertFalse(is_within_service_window(self.conversation))
+
+    def test_open_window_sends_free_form_text(self):
+        from unittest.mock import patch
+
+        from whatsapp_integration.messaging import send_to_customer
+
+        self._inbound(hours_ago=1)
+        with patch(
+            'whatsapp_integration.client.WhatsAppClient.send_text',
+            return_value='wamid.OUT1',
+        ) as send_text:
+            delivery = send_to_customer(
+                self.business, self.customer.phone, 'hello',
+                template_category='ORDER_CONFIRMATION',
+            )
+
+        send_text.assert_called_once()
+        self.assertFalse(delivery.used_template)
+
+    def test_closed_window_falls_back_to_the_approved_template(self):
+        from unittest.mock import patch
+
+        from whatsapp_integration.messaging import send_to_customer
+
+        self._inbound(hours_ago=30)
+        self._template()
+
+        with patch(
+            'whatsapp_integration.client.WhatsAppClient.send_template',
+            return_value='wamid.OUT2',
+        ) as send_template, patch(
+            'whatsapp_integration.client.WhatsAppClient.send_text'
+        ) as send_text:
+            delivery = send_to_customer(
+                self.business, self.customer.phone, 'hello',
+                template_category='ORDER_CONFIRMATION',
+                template_context={'customer_name': 'Jane'},
+            )
+
+        send_text.assert_not_called()
+        self.assertTrue(delivery.used_template)
+        self.assertEqual(delivery.template_name, 'order_confirmation_v1')
+        self.assertEqual(
+            send_template.call_args.kwargs['components'],
+            [{'type': 'body',
+              'parameters': [{'type': 'text', 'text': 'Jane'}]}],
+        )
+
+    def test_closed_window_without_a_template_raises(self):
+        from whatsapp_integration.messaging import (
+            OutsideServiceWindow,
+            send_to_customer,
+        )
+
+        self._inbound(hours_ago=30)
+        with self.assertRaises(OutsideServiceWindow):
+            send_to_customer(
+                self.business, self.customer.phone, 'hello',
+                template_category='ORDER_CONFIRMATION',
+            )
+
+    def test_template_variables_bind_positionally(self):
+        from whatsapp_integration.messaging import build_body_components
+
+        template = self._template(variables=['customer_name', 'order_number'])
+        components = build_body_components(
+            template, {'order_number': 'ORD-9', 'customer_name': 'Jane'}
+        )
+        self.assertEqual(
+            [p['text'] for p in components[0]['parameters']], ['Jane', 'ORD-9']
+        )
+
+    def test_missing_variable_does_not_shift_later_parameters(self):
+        from whatsapp_integration.messaging import build_body_components
+
+        template = self._template(variables=['customer_name', 'order_number'])
+        components = build_body_components(template, {'order_number': 'ORD-9'})
+        self.assertEqual(
+            [p['text'] for p in components[0]['parameters']], ['', 'ORD-9']
+        )
+
+    def test_notification_outside_the_window_uses_a_template(self):
+        from unittest.mock import patch
+
+        from notifications.services import NotificationService
+
+        self._inbound(hours_ago=30)
+        self._template()
+        self.business.whatsapp_auto_order_confirmation = True
+        self.business.save(update_fields=['whatsapp_auto_order_confirmation'])
+
+        order = Order.objects.create(
+            business=self.business, customer=self.customer,
+            total_amount=Decimal('100.00'), created_by=self.owner,
+        )
+
+        with patch(
+            'whatsapp_integration.client.WhatsAppClient.send_template',
+            return_value='wamid.OUT3',
+        ) as send_template:
+            NotificationService(self.business).send_order_confirmation(order)
+
+        send_template.assert_called_once()
+
+        from whatsapp_integration.models import WhatsAppMessage
+        outgoing = WhatsAppMessage.objects.get(message_id='wamid.OUT3')
+        self.assertEqual(outgoing.message_type, 'TEMPLATE')
+
+    def test_notification_without_a_template_is_skipped_not_crashed(self):
+        from unittest.mock import patch
+
+        from notifications.services import NotificationService
+
+        self._inbound(hours_ago=30)
+        self.business.whatsapp_auto_order_confirmation = True
+        self.business.save(update_fields=['whatsapp_auto_order_confirmation'])
+
+        order = Order.objects.create(
+            business=self.business, customer=self.customer,
+            total_amount=Decimal('100.00'), created_by=self.owner,
+        )
+
+        with patch(
+            'whatsapp_integration.client.WhatsAppClient.send_text'
+        ) as send_text:
+            notification = NotificationService(
+                self.business
+            ).send_order_confirmation(order)
+
+        # The in-app notification is still recorded; only the WhatsApp copy is
+        # dropped, and no doomed free-form send is attempted.
+        self.assertIsNotNone(notification)
+        send_text.assert_not_called()
+
+    def test_staff_reply_outside_the_window_returns_400(self):
+        self._inbound(hours_ago=30)
+        response = self.client.post(
+            f'/api/v1/whatsapp/conversations/{self.conversation.id}/send_message/',
+            {'to': self.customer.phone, 'message_type': 'TEXT',
+             'content': 'are you still there?'},
+            content_type='application/json', **self.tenant,
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('24-hour', response.json()['error'])
+
+    def test_conversation_endpoint_reports_the_window(self):
+        self._inbound(hours_ago=1)
+        row = self.client.get(
+            '/api/v1/whatsapp/conversations/', **self.tenant
+        ).json()['results'][0]
+        self.assertTrue(row['can_send_free_form'])
+        self.assertIsNotNone(row['service_window_expires_at'])

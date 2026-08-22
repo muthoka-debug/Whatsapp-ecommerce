@@ -83,27 +83,31 @@ class NotificationService:
         logger.info('SMS sent: %s', message.sid)
 
     def send_whatsapp(self, notification):
-        """Send over the WhatsApp Business API and record the message."""
-        from whatsapp_integration.client import WhatsAppClient
-        from whatsapp_integration.models import (
-            WhatsAppConversation,
-            WhatsAppMessage,
-            WhatsAppSetting,
-        )
+        """Send over the WhatsApp Business API and record the message.
+
+        Delivery goes through ``whatsapp_integration.messaging`` so that a
+        notification reaching a customer outside Meta's 24-hour window is sent
+        as an approved template instead of failing. The template to fall back on
+        comes from ``notification.template_category``, set by the event methods
+        below; a notification without one can only be delivered inside the
+        window.
+        """
+        from whatsapp_integration.messaging import get_conversation, send_to_customer
+        from whatsapp_integration.models import WhatsAppMessage
 
         phone = getattr(notification.recipient, 'phone', '')
         if not phone:
             raise ValueError('Recipient has no phone number')
 
-        whatsapp_settings = WhatsAppSetting.objects.get(business=self.business)
+        conversation = get_conversation(self.business, phone)
 
-        conversation = WhatsAppConversation.objects.filter(
-            business=self.business,
-            phone_number=phone,
-        ).first()
-
-        provider_message_id = WhatsAppClient(whatsapp_settings).send_text(
-            phone, notification.message
+        delivery = send_to_customer(
+            self.business,
+            phone,
+            notification.message,
+            template_category=getattr(notification, 'template_category', None),
+            template_context=getattr(notification, 'template_context', None),
+            conversation=conversation,
         )
 
         if conversation:
@@ -111,16 +115,27 @@ class NotificationService:
                 business=self.business,
                 conversation=conversation,
                 message_id=(
-                    provider_message_id or f'NOTIF-{timezone.now().timestamp()}'
+                    delivery.message_id or f'NOTIF-{timezone.now().timestamp()}'
                 ),
                 direction='OUTGOING',
-                message_type='TEXT',
+                message_type='TEMPLATE' if delivery.used_template else 'TEXT',
                 content=notification.message,
                 sent_at=timezone.now(),
                 is_ai_generated=False,
+                metadata=(
+                    {'template_name': delivery.template_name}
+                    if delivery.used_template
+                    else {}
+                ),
             )
 
-        logger.info('WhatsApp notification sent to %s', phone)
+        logger.info(
+            'WhatsApp notification sent to %s (%s)',
+            phone,
+            f'template {delivery.template_name}'
+            if delivery.used_template
+            else 'free-form',
+        )
 
     def mark_in_app(self, notification):
         """In-app notification is already persisted; nothing more to do."""
@@ -173,7 +188,9 @@ class NotificationService:
             return template.subject, template.render(context)
         return fallback_title, fallback_message
 
-    def _deliver_to_customer_over_whatsapp(self, notification, customer):
+    def _deliver_to_customer_over_whatsapp(
+        self, notification, customer, template_category=None, template_context=None
+    ):
         """Mirror a stored notification out to the customer over WhatsApp.
 
         The stored Notification's recipient is the staff user (its FK only
@@ -181,7 +198,13 @@ class NotificationService:
         stand-in carrying just the fields send_whatsapp() reads. The old code
         flipped notification.channel in memory and re-sent it, which delivered
         the customer's message to the staff member instead.
+
+        ``template_category`` names the approved template to use once the
+        customer's 24-hour window has closed. Without one the send is limited to
+        customers who messaged in the last day.
         """
+        from whatsapp_integration.messaging import OutsideServiceWindow
+
         if customer is None or not getattr(customer, 'phone', ''):
             return
 
@@ -191,9 +214,20 @@ class NotificationService:
             title=notification.title,
             message=notification.message,
             channel='WHATSAPP',
+            template_category=template_category,
+            template_context=template_context,
         )
         try:
             self.send_whatsapp(outbound)
+        except OutsideServiceWindow as exc:
+            # Expected whenever a customer has not written in for a day and the
+            # business has not registered a template: not a bug, but the message
+            # did not reach them, so say so plainly rather than as a traceback.
+            logger.warning(
+                'WhatsApp delivery skipped for notification %s: %s',
+                notification.pk,
+                exc,
+            )
         except Exception:
             logger.exception(
                 'WhatsApp delivery failed for notification %s', notification.pk
@@ -211,14 +245,15 @@ class NotificationService:
             return None
 
         currency = getattr(self.business, 'currency', '')
+        context = {
+            'order_number': order.order_number,
+            'customer_name': order.customer.name,
+            'total_amount': order.total_amount,
+            'currency': currency,
+        }
         title, message = self._render(
             'ORDER_CONFIRMATION',
-            {
-                'order_number': order.order_number,
-                'customer_name': order.customer.name,
-                'total_amount': order.total_amount,
-                'currency': currency,
-            },
+            context,
             f'Order #{order.order_number} Confirmed',
             f'Order #{order.order_number} has been confirmed. '
             f'Total: {currency} {order.total_amount}',
@@ -235,7 +270,9 @@ class NotificationService:
         )
 
         if getattr(self.business, 'whatsapp_auto_order_confirmation', False):
-            self._deliver_to_customer_over_whatsapp(notification, order.customer)
+            self._deliver_to_customer_over_whatsapp(
+                notification, order.customer, 'ORDER_CONFIRMATION', context
+            )
 
         return notification
 
@@ -251,14 +288,16 @@ class NotificationService:
             return None
 
         currency = getattr(self.business, 'currency', '')
+        context = {
+            'amount': payment.amount,
+            'currency': currency,
+            'method': payment.get_method_display(),
+            'transaction_id': payment.transaction_id,
+            'order_number': order.order_number if order else '',
+        }
         title, message = self._render(
             'PAYMENT_CONFIRMATION',
-            {
-                'amount': payment.amount,
-                'currency': currency,
-                'method': payment.get_method_display(),
-                'transaction_id': payment.transaction_id,
-            },
+            context,
             'Payment Confirmed',
             f'Payment of {currency} {payment.amount} received via '
             f'{payment.get_method_display()}',
@@ -276,7 +315,10 @@ class NotificationService:
 
         if getattr(self.business, 'whatsapp_auto_order_confirmation', False):
             self._deliver_to_customer_over_whatsapp(
-                notification, order.customer if order else None
+                notification,
+                order.customer if order else None,
+                'PAYMENT_CONFIRMATION',
+                context,
             )
 
         return notification
@@ -308,17 +350,18 @@ class NotificationService:
             key, 'Delivery status for order #{order_number} is now ' + str(key) + '.'
         ).format(order_number=order.order_number)
 
+        context = {
+            'order_number': order.order_number,
+            'customer_name': order.customer.name,
+            'status': delivery.get_status_display(),
+            'address': delivery.address,
+            'fee': delivery.fee,
+            'currency': getattr(self.business, 'currency', ''),
+            'tracking_number': delivery.tracking_number,
+        }
         title, message = self._render(
             'DELIVERY_UPDATE',
-            {
-                'order_number': order.order_number,
-                'customer_name': order.customer.name,
-                'status': delivery.get_status_display(),
-                'address': delivery.address,
-                'fee': delivery.fee,
-                'currency': getattr(self.business, 'currency', ''),
-                'tracking_number': delivery.tracking_number,
-            },
+            context,
             f'Delivery Update - Order #{order.order_number}',
             fallback,
         )
@@ -341,7 +384,9 @@ class NotificationService:
         if key in ('IN_TRANSIT', 'DELIVERED') and getattr(
             self.business, 'whatsapp_delivery_updates', False
         ):
-            self._deliver_to_customer_over_whatsapp(notification, order.customer)
+            self._deliver_to_customer_over_whatsapp(
+                notification, order.customer, 'DELIVERY_UPDATE', context
+            )
 
         return notification
 
@@ -352,14 +397,15 @@ class NotificationService:
             logger.warning('No recipient for status update on order %s', order.pk)
             return None
 
+        context = {
+            'order_number': order.order_number,
+            'old_status': old_status,
+            'new_status': new_status,
+            'customer_name': order.customer.name,
+        }
         title, message = self._render(
             'ORDER_STATUS',
-            {
-                'order_number': order.order_number,
-                'old_status': old_status,
-                'new_status': new_status,
-                'customer_name': order.customer.name,
-            },
+            context,
             f'Order #{order.order_number} Updated',
             f'Order #{order.order_number} status changed from '
             f'{old_status} to {new_status}',
@@ -380,6 +426,154 @@ class NotificationService:
         )
 
         if getattr(self.business, 'whatsapp_order_status_updates', False):
-            self._deliver_to_customer_over_whatsapp(notification, order.customer)
+            self._deliver_to_customer_over_whatsapp(
+                notification, order.customer, 'ORDER_STATUS', context
+            )
+
+        return notification
+
+    # ------------------------------------------------------------------
+    # Automation notifications
+    #
+    # Driven by the automation app rather than by a user action. The two
+    # customer-facing ones below are unsolicited outbound marketing, so they
+    # respect whatsapp_auto_order_confirmation as the customer-contact consent
+    # flag rather than sending unconditionally.
+    # ------------------------------------------------------------------
+
+    def send_payment_failed(self, payment):
+        """Alert staff that a payment attempt failed."""
+        order = payment.order
+        recipient = self._resolve_recipient_user(
+            payment.processed_by,
+            order.created_by if order else None,
+        )
+        if not recipient:
+            logger.warning('No recipient for failed payment %s', payment.pk)
+            return None
+
+        currency = getattr(self.business, 'currency', '')
+        reference = order.order_number if order else payment.pk
+        title, message = self._render(
+            'PAYMENT_FAILED',
+            {
+                'order_number': reference,
+                'amount': payment.amount,
+                'currency': currency,
+                'method': payment.method,
+            },
+            f'Payment failed for #{reference}',
+            f'A {payment.method} payment of {currency} {payment.amount} for '
+            f'#{reference} did not go through.',
+        )
+
+        return Notification.objects.create(
+            business=self.business,
+            recipient=recipient,
+            title=title,
+            message=message,
+            channel='IN_APP',
+            priority='HIGH',
+            metadata={'payment_id': str(payment.id)},
+        )
+
+    def send_low_stock_alert(self, product):
+        """Tell the owner a product needs reordering."""
+        recipient = self._resolve_recipient_user()
+        if not recipient:
+            return None
+
+        title, message = self._render(
+            'LOW_STOCK',
+            {
+                'product_name': product.name,
+                'stock': product.stock,
+                'threshold': product.low_stock_threshold,
+            },
+            f'Low stock: {product.name}',
+            f'{product.name} is down to {product.stock} units '
+            f'(reorder threshold {product.low_stock_threshold}).',
+        )
+
+        return Notification.objects.create(
+            business=self.business,
+            recipient=recipient,
+            title=title,
+            message=message,
+            channel='IN_APP',
+            priority='HIGH',
+            metadata={'product_id': str(product.id), 'stock': product.stock},
+        )
+
+    def send_abandoned_cart_reminder(self, cart):
+        """Nudge a customer who left items in their cart."""
+        customer = cart.customer
+        if customer is None or not getattr(customer, 'phone', ''):
+            return None
+
+        recipient = self._resolve_recipient_user()
+        if not recipient:
+            return None
+
+        item_count = cart.items.count()
+        context = {'customer_name': customer.name, 'item_count': item_count}
+        title, message = self._render(
+            'ABANDONED_CART',
+            context,
+            'You left something behind',
+            f'Hi {customer.name}, you still have {item_count} item(s) waiting '
+            f'in your cart. Reply here and we will help you check out.',
+        )
+
+        notification = Notification.objects.create(
+            business=self.business,
+            recipient=recipient,
+            title=title,
+            message=message,
+            channel='IN_APP',
+            priority='LOW',
+            metadata={'cart_id': str(cart.id)},
+        )
+
+        if getattr(self.business, 'whatsapp_auto_order_confirmation', False):
+            self._deliver_to_customer_over_whatsapp(
+                notification, customer, 'ABANDONED_CART', context
+            )
+
+        return notification
+
+    def send_feedback_request(self, order):
+        """Ask a customer how a delivered order went."""
+        customer = order.customer
+        recipient = self._resolve_recipient_user(order.created_by)
+        if not recipient:
+            return None
+
+        context = {
+            'order_number': order.order_number,
+            'customer_name': customer.name,
+        }
+        title, message = self._render(
+            'FEEDBACK_REQUEST',
+            context,
+            f'How was order #{order.order_number}?',
+            f'Hi {customer.name}, your order #{order.order_number} was '
+            f'delivered. How did we do? Just reply to this message.',
+        )
+
+        notification = Notification.objects.create(
+            business=self.business,
+            recipient=recipient,
+            title=title,
+            message=message,
+            channel='IN_APP',
+            priority='LOW',
+            metadata={'order_id': str(order.id)},
+        )
+
+        if getattr(self.business, 'whatsapp_order_status_updates', False):
+            self._deliver_to_customer_over_whatsapp(
+                notification, customer, 'FEEDBACK_REQUEST', context
+            )
 
         return notification

@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% comment %}
-Chrome shared by every dashboard page: top bar (search, notifications, account),
-sidebar, business switcher, sign-out. Pages fill `page` with their own content
-and `page_scripts` with their module.
-{% endcomment %}
 
 {% block body %}
 <header class="topbar">
@@ -15,8 +10,7 @@ and `page_scripts` with their module.
   </div>
 
   <div class="topbar-tools">
-    {# Drives the current page's own filter where there is one, else jumps to
-       Products. Never a decorative box. #}
+    
     <form class="topsearch" id="topsearch" role="search">
       <input id="topsearch-input" type="search" placeholder="Search" aria-label="Search">
       <button type="submit" aria-label="Search">
@@ -66,6 +60,10 @@ and `page_scripts` with their module.
       <a href="/dashboard/deliveries/" class="{% if nav == 'deliveries' %}current{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-4l-3-4h-5v8h2"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
         Deliveries
+      </a>
+      <a href="/dashboard/automation/" class="{% if nav == 'automation' %}current{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v3"/><path d="M12 19v3"/><path d="M4.9 4.9 7 7"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="M4.9 19.1 7 17"/><path d="m17 7 2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>
+        Automation
       </a>
     </nav>
 

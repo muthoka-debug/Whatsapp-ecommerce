@@ -1,4 +1,3 @@
-import logging
 
 from django.contrib.auth import get_user_model
 from rest_framework import status, viewsets
@@ -19,8 +18,6 @@ from .serializers import (
     DeliveryFailSerializer,
     DeliverySerializer,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class DeliveryViewSet(viewsets.ModelViewSet):
@@ -210,14 +207,24 @@ class DeliveryViewSet(viewsets.ModelViewSet):
     # ------------------------------------------------------------------
 
     def _notify(self, delivery, event):
-        """Best-effort customer notification; never fails the request."""
-        from notifications.services import NotificationService
+        """Announce a delivery milestone to the automation layer.
 
-        try:
-            NotificationService(delivery.business).send_delivery_update(
-                delivery, event
-            )
-        except Exception:
-            logger.exception(
-                'Failed to send delivery notification for delivery %s', delivery.pk
-            )
+        Statuses with no mapped event (PENDING, PICKED_UP, and the synthetic
+        'created') are internal moves the customer does not need to hear about,
+        so nothing is emitted for them.
+        """
+        from automation.events import DELIVERY_STATUS_EVENTS
+        from automation.services import emit
+
+        automation_event = DELIVERY_STATUS_EVENTS.get(delivery.status)
+        if automation_event is None:
+            return
+
+        emit(
+            automation_event,
+            delivery.business,
+            subject=delivery,
+            idempotency_key=f'delivery-status:{delivery.pk}:{delivery.status}',
+            delivery_event=event,
+            status=delivery.status,
+        )

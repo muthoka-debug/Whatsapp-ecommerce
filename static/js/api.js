@@ -157,6 +157,9 @@ const TONES = {
   CANCELLED: 'critical', FAILED: 'critical', REFUNDED: 'critical',
   COMPLETED: 'good', ASSIGNED: 'neutral', PICKED_UP: 'neutral',
   IN_TRANSIT: 'serious', TIMEOUT: 'critical', ACTIVE: 'good', RESOLVED: 'neutral',
+  // Automation run outcomes. SKIPPED is neutral on purpose: an event nothing
+  // handles is the designed behaviour, not a problem to chase.
+  SUCCESS: 'good', SKIPPED: 'neutral',
 };
 
 export function badge(status, label) {

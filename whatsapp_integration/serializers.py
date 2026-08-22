@@ -31,16 +31,34 @@ class WhatsAppConversationSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
-    
+    # Meta's 24-hour customer service window. Once it closes only approved
+    # templates get through, so the dashboard needs to know before offering a
+    # free-form reply box.
+    service_window_expires_at = serializers.SerializerMethodField()
+    can_send_free_form = serializers.SerializerMethodField()
+
     class Meta:
         model = WhatsAppConversation
         fields = [
             'id', 'customer', 'customer_details', 'whatsapp_id', 'phone_number',
             'customer_name', 'status', 'status_display', 'last_message_at',
-            'assigned_to', 'tags', 'metadata', 'last_message', 'unread_count'
+            'assigned_to', 'tags', 'metadata', 'last_message', 'unread_count',
+            'service_window_expires_at', 'can_send_free_form',
         ]
         read_only_fields = ['id', 'whatsapp_id', 'last_message_at']
-    
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_service_window_expires_at(self, obj):
+        from .messaging import service_window_expires_at
+
+        return service_window_expires_at(obj)
+
+    def get_can_send_free_form(self, obj) -> bool:
+        from .messaging import is_within_service_window
+
+        return is_within_service_window(obj)
+
+
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_last_message(self, obj):
         last_msg = obj.messages.order_by('-sent_at').first()
@@ -87,10 +105,15 @@ class WhatsAppTemplateCreateSerializer(serializers.ModelSerializer):
 
 
 class WhatsAppSettingSerializer(serializers.ModelSerializer):
+    provider_display = serializers.CharField(
+        source='get_provider_display', read_only=True
+    )
+
     class Meta:
         model = WhatsAppSetting
         fields = [
-            'id', 'phone_number_id', 'business_account_id', 'access_token',
+            'id', 'provider', 'provider_display',
+            'phone_number_id', 'business_account_id', 'access_token',
             'display_phone_number', 'display_name', 'about_text',
             'auto_reply_enabled', 'auto_reply_message', 'auto_reply_template',
             'ai_enabled', 'ai_context_window',

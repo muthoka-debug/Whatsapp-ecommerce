@@ -139,6 +139,93 @@ async function loadCategories() {
   $('#product-category').innerHTML = ['<option value="">None</option>']
     .concat(categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`))
     .join('');
+
+  $('#category-parent').innerHTML = ['<option value="">None (top level)</option>']
+    .concat(categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`))
+    .join('');
+}
+
+/* --- repeatable image URLs ------------------------------------------------- */
+
+/* Rows are built as DOM nodes rather than an HTML string: a URL goes straight
+ * into .value, so nothing needs escaping and a stray quote cannot break out. */
+function addImageRow(value = '') {
+  const container = $('#product-images');
+  container.querySelector('.repeat-empty')?.remove();
+
+  const row = document.createElement('div');
+  row.className = 'repeat-row';
+
+  const input = document.createElement('input');
+  input.type = 'url';
+  input.placeholder = 'https://…';
+  input.value = value;
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'btn btn-sm btn-danger';
+  remove.textContent = 'Remove';
+  remove.setAttribute('aria-label', 'Remove this image');
+  remove.addEventListener('click', () => {
+    row.remove();
+    if (!container.querySelector('.repeat-row')) renderNoImages();
+  });
+
+  row.append(input, remove);
+  container.append(row);
+  return input;
+}
+
+function renderNoImages() {
+  const container = $('#product-images');
+  container.innerHTML = '';
+  const note = document.createElement('p');
+  note.className = 'repeat-empty';
+  note.textContent = 'No images yet.';
+  container.append(note);
+}
+
+function setImages(urls) {
+  $('#product-images').innerHTML = '';
+  const list = (urls || []).filter(url => typeof url === 'string' && url.trim());
+  if (!list.length) {
+    renderNoImages();
+    return;
+  }
+  list.forEach(url => addImageRow(url));
+}
+
+function readImages() {
+  return Array.from($('#product-images').querySelectorAll('input'))
+    .map(input => input.value.trim())
+    .filter(Boolean);
+}
+
+/* --- optional numeric / JSON fields --------------------------------------- */
+
+/* Empty means "no value", which for a nullable decimal is null — not ''. DRF
+ * rejects '' on a DecimalField, and omitting the key would leave a previous
+ * value in place, so clearing the input in the edit form has to send null. */
+function optionalNumber(selector) {
+  const raw = $(selector).value.trim();
+  return raw === '' ? null : raw;
+}
+
+function readDimensions() {
+  const dimensions = {};
+  [['length', '#product-length'], ['width', '#product-width'], ['height', '#product-height']]
+    .forEach(([key, selector]) => {
+      const raw = $(selector).value.trim();
+      if (raw !== '') dimensions[key] = Number(raw);
+    });
+  return dimensions;
+}
+
+function setDimensions(dimensions) {
+  const values = dimensions || {};
+  $('#product-length').value = values.length ?? '';
+  $('#product-width').value = values.width ?? '';
+  $('#product-height').value = values.height ?? '';
 }
 
 /* --- create / edit -------------------------------------------------------- */
@@ -148,10 +235,14 @@ function bindForms() {
     $('#product-form').reset();
     $('#product-id').value = '';
     $('#product-active').checked = true;
+    // form.reset() cannot clear rows that were added to the DOM.
+    setImages([]);
     $('#product-modal-title').textContent = 'New product';
     showError($('#product-error'), '');
     openModal('product-modal');
   });
+
+  $('#add-image').addEventListener('click', () => addImageRow().focus());
 
   $('#new-category').addEventListener('click', () => {
     $('#category-form').reset();
@@ -173,10 +264,16 @@ async function editProduct(id) {
     $('#product-description').value = product.description || '';
     $('#product-price').value = product.price ?? '';
     $('#product-compare').value = product.compare_price ?? '';
+    $('#product-cost').value = product.cost_price ?? '';
     $('#product-stock').value = product.stock ?? 0;
     $('#product-threshold').value = product.low_stock_threshold ?? 5;
     $('#product-category').value = product.category ?? '';
     $('#product-sku').value = product.sku || '';
+    $('#product-barcode').value = product.barcode || '';
+    $('#product-weight').value = product.weight ?? '';
+    $('#product-tags').value = (product.tags || []).join(', ');
+    setImages(product.images);
+    setDimensions(product.dimensions);
     $('#product-active').checked = !!product.is_active;
     $('#product-featured').checked = !!product.is_featured;
     $('#product-modal-title').textContent = 'Edit product';
@@ -195,15 +292,22 @@ async function saveProduct(event) {
     name: $('#product-name').value.trim(),
     description: $('#product-description').value.trim(),
     price: $('#product-price').value,
+    compare_price: optionalNumber('#product-compare'),
+    cost_price: optionalNumber('#product-cost'),
     stock: Number($('#product-stock').value || 0),
     low_stock_threshold: Number($('#product-threshold').value || 0),
     category: $('#product-category').value || null,
+    barcode: $('#product-barcode').value.trim(),
+    weight: optionalNumber('#product-weight'),
+    tags: $('#product-tags').value.split(',').map(tag => tag.trim()).filter(Boolean),
+    images: readImages(),
+    dimensions: readDimensions(),
     is_active: $('#product-active').checked,
     is_featured: $('#product-featured').checked,
   };
 
-  const compare = $('#product-compare').value;
-  if (compare) payload.compare_price = compare;
+  // Blank means "generate one" on create, and "keep the existing one" on edit —
+  // sending '' would ask the server to store an empty SKU instead.
   const sku = $('#product-sku').value.trim();
   if (sku) payload.sku = sku;
 
@@ -241,6 +345,9 @@ async function saveCategory(event) {
     await api.post('/api/v1/products/categories/', {
       name: $('#category-name').value.trim(),
       description: $('#category-description').value.trim(),
+      parent: $('#category-parent').value || null,
+      icon: $('#category-icon').value.trim(),
+      display_order: Number($('#category-order').value || 0),
     });
     closeModal('category-modal');
     await loadCategories();
